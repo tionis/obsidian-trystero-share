@@ -38,14 +38,28 @@ The build uses esbuild with specific settings for Obsidian/Electron compatibilit
 - **format**: `cjs` - Obsidian requires CommonJS modules
 - **platform**: `browser` - Use browser APIs (WebRTC) instead of Node.js native addons
 - **external**: `['obsidian']` - Obsidian API provided at runtime
-- **banner**: Shim for `import.meta.url` → `__filename` (needed for some dependencies)
+- **banner**: Shim for `import.meta.url` with desktop/mobile detection (see below)
 - **define**: `global` → `globalThis` for browser platform compatibility
+
+### Mobile Compatibility
+
+Obsidian mobile doesn't have Node.js APIs (`require`, `__filename`, etc.). The `import.meta.url` shim must detect the environment:
+
+```javascript
+// Works on both desktop (Electron/Node.js) and mobile
+banner: {
+  js: `var __import_meta_url = (typeof require !== 'undefined' && typeof __filename !== 'undefined') ? require('url').pathToFileURL(__filename).href : 'file:///plugin.js';`,
+},
+```
+
+Also ensure `manifest.json` has `"isDesktopOnly": false` to allow mobile loading.
 
 ### Common Build Issues
 
 1. **Top-level await error**: Use `platform: 'browser'` to avoid Node.js polyfills with top-level await
 2. **node_datachannel.node error**: Caused by `platform: 'node'`; switch to `platform: 'browser'`
-3. **import.meta.url undefined**: Add banner shim using `pathToFileURL(__filename)`
+3. **import.meta.url undefined**: Add banner shim with environment detection (see Mobile Compatibility above)
+4. **Failed to load plugin on mobile**: Don't use Node.js APIs unconditionally in banner/shims
 
 ## Trystero P2P Communication
 
