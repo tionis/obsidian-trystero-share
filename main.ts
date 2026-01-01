@@ -31,6 +31,9 @@ interface UpdatePayload {
 // Type for action sender functions
 type ActionSender<T> = (data: T, targetPeers?: string | string[]) => void;
 
+// Debounce delay for file updates (ms)
+const UPDATE_DEBOUNCE_MS = 500;
+
 export default class TrysteroSharePlugin extends Plugin {
 	private room: Room | null = null;
 	private isSharing = false;
@@ -40,6 +43,9 @@ export default class TrysteroSharePlugin extends Plugin {
 	private sendDoc: ActionSender<DocResponse> | null = null;
 	private sendDocList: ActionSender<DocListResponse> | null = null;
 	private sendUpdate: ActionSender<UpdatePayload> | null = null;
+
+	// Debounce timers for file updates
+	private pendingUpdates: Map<string, NodeJS.Timeout> = new Map();
 
 	async onload() {
 		// Add ribbon icon
@@ -189,26 +195,47 @@ export default class TrysteroSharePlugin extends Plugin {
 		}
 	}
 
-	private async broadcastFileUpdate(file: TFile) {
+	private broadcastFileUpdate(file: TFile) {
 		if (!this.sendUpdate || !this.isSharing) return;
 
-		try {
-			const content = await this.app.vault.read(file);
-			const update: UpdatePayload = {
-				path: file.path,
-				content,
-			};
-
-			// Broadcast to all peers
-			this.sendUpdate(update);
-			console.log(`Broadcasted update for: ${file.path}`);
-		} catch (error) {
-			console.error(`Failed to broadcast update for ${file.path}:`, error);
+		// Clear any pending update for this file
+		const existingTimeout = this.pendingUpdates.get(file.path);
+		if (existingTimeout) {
+			clearTimeout(existingTimeout);
 		}
+
+		// Schedule debounced update
+		const timeout = setTimeout(async () => {
+			this.pendingUpdates.delete(file.path);
+
+			if (!this.sendUpdate || !this.isSharing) return;
+
+			try {
+				const content = await this.app.vault.read(file);
+				const update: UpdatePayload = {
+					path: file.path,
+					content,
+				};
+
+				// Broadcast to all peers
+				this.sendUpdate(update);
+				console.log(`Broadcasted update for: ${file.path}`);
+			} catch (error) {
+				console.error(`Failed to broadcast update for ${file.path}:`, error);
+			}
+		}, UPDATE_DEBOUNCE_MS);
+
+		this.pendingUpdates.set(file.path, timeout);
 	}
 
 	private async stopSharing() {
 		if (!this.isSharing) return;
+
+		// Clear all pending update timers
+		for (const timeout of this.pendingUpdates.values()) {
+			clearTimeout(timeout);
+		}
+		this.pendingUpdates.clear();
 
 		if (this.room) {
 			this.room.leave();
