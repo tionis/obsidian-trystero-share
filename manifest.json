@@ -1,0 +1,9 @@
+{
+	"id": "trystero-share",
+	"name": "Trystero Share",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Share vault documents via peer-to-peer WebRTC using Trystero",
+	"author": "Your Name",
+	"isDesktopOnly": true
+}
