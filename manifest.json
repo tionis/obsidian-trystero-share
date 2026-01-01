@@ -5,5 +5,5 @@
 	"minAppVersion": "1.0.0",
 	"description": "Share vault documents via peer-to-peer WebRTC using Trystero",
 	"author": "Your Name",
-	"isDesktopOnly": true
+	"isDesktopOnly": false
 }
