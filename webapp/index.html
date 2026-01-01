@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Obsidian Viewer</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      margin: 0;
+      display: flex;
+      height: 100vh;
+    }
+    #sidebar {
+      width: 250px;
+      background: #1e1e1e;
+      color: #ccc;
+      padding: 1rem;
+      overflow-y: auto;
+      border-right: 1px solid #333;
+    }
+    #sidebar h2 { margin-top: 0; color: #fff; font-size: 1rem; }
+    #file-list { list-style: none; padding: 0; margin: 0; }
+    #file-list li {
+      padding: 0.5rem;
+      cursor: pointer;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #file-list li:hover { background: #333; }
+    #file-list li.active { background: #4a4a4a; color: #fff; }
+    #main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    #status {
+      padding: 0.5rem 1rem;
+      background: #2d2d2d;
+      color: #888;
+      font-size: 0.85rem;
+      border-bottom: 1px solid #333;
+    }
+    #status.connected { color: #4caf50; }
+    #content {
+      flex: 1;
+      padding: 2rem;
+      overflow-y: auto;
+      background: #fafafa;
+    }
+    #content h1, #content h2, #content h3 { margin-top: 1.5rem; }
+    #content h1:first-child { margin-top: 0; }
+    #content pre {
+      background: #282c34;
+      color: #abb2bf;
+      padding: 1rem;
+      border-radius: 6px;
+      overflow-x: auto;
+    }
+    #content code {
+      background: #e8e8e8;
+      padding: 0.2em 0.4em;
+      border-radius: 3px;
+      font-size: 0.9em;
+    }
+    #content pre code { background: none; padding: 0; }
+    #content blockquote {
+      border-left: 4px solid #ddd;
+      margin-left: 0;
+      padding-left: 1rem;
+      color: #666;
+    }
+    .loading { color: #888; font-style: italic; }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h2>📁 Files</h2>
+    <ul id="file-list">
+      <li class="loading">Connecting...</li>
+    </ul>
+  </div>
+  <div id="main">
+    <div id="status">Connecting to Obsidian...</div>
+    <div id="content">
+      <p class="loading">Select a file from the sidebar to view it.</p>
+    </div>
+  </div>
+
+  <script type="module">
+    import { joinRoom } from 'https://esm.sh/trystero@0.20.1/torrent';
+
+    const config = { appId: 'obsidian-trystero-share-v1' };
+    const roomId = 'my-obsidian-vault';
+
+    const fileList = document.getElementById('file-list');
+    const content = document.getElementById('content');
+    const status = document.getElementById('status');
+
+    let room;
+    let sendDocRequest;
+    let sendListRequest;
+    let hostPeerId = null;
+    const pendingRequests = new Map();
+
+    function generateId() {
+      return Math.random().toString(36).substring(2, 15);
+    }
+
+    function init() {
+      room = joinRoom(config, roomId);
+
+      const [sendDoc, getDoc] = room.makeAction('doc');
+      const [sendList, getList] = room.makeAction('docList');
+      const [, getUpdate] = room.makeAction('update');
+
+      sendDocRequest = sendDoc;
+      sendListRequest = sendList;
+
+      // Handle document responses
+      getDoc((response) => {
+        const resolve = pendingRequests.get(response.requestId);
+        if (resolve) {
+          pendingRequests.delete(response.requestId);
+          resolve(response);
+        }
+      });
+
+      // Handle file list responses
+      getList((response) => {
+        const resolve = pendingRequests.get(response.requestId);
+        if (resolve) {
+          pendingRequests.delete(response.requestId);
+          resolve(response);
+        }
+      });
+
+      // Handle live updates
+      getUpdate((update) => {
+        const activeFile = document.querySelector('#file-list li.active');
+        if (activeFile && activeFile.dataset.path === update.path) {
+          renderMarkdown(update.content);
+        }
+      });
+
+      room.onPeerJoin(async (peerId) => {
+        console.log('Connected to host:', peerId);
+        hostPeerId = peerId;
+        status.textContent = 'Connected to Obsidian ✓';
+        status.classList.add('connected');
+        
+        // Request file list
+        const files = await requestFileList();
+        renderFileList(files);
+      });
+
+      room.onPeerLeave((peerId) => {
+        if (peerId === hostPeerId) {
+          hostPeerId = null;
+          status.textContent = 'Disconnected from Obsidian';
+          status.classList.remove('connected');
+          fileList.innerHTML = '<li class="loading">Waiting for host...</li>';
+        }
+      });
+    }
+
+    function requestFileList() {
+      return new Promise((resolve) => {
+        const requestId = generateId();
+        pendingRequests.set(requestId, (response) => resolve(response.files));
+        sendListRequest({ requestId }, hostPeerId);
+        
+        // Timeout after 10s
+        setTimeout(() => {
+          if (pendingRequests.has(requestId)) {
+            pendingRequests.delete(requestId);
+            resolve([]);
+          }
+        }, 10000);
+      });
+    }
+
+    function requestDocument(path) {
+      return new Promise((resolve) => {
+        const requestId = generateId();
+        pendingRequests.set(requestId, resolve);
+        sendDocRequest({ path, requestId }, hostPeerId);
+        
+        setTimeout(() => {
+          if (pendingRequests.has(requestId)) {
+            pendingRequests.delete(requestId);
+            resolve({ error: 'Timeout' });
+          }
+        }, 10000);
+      });
+    }
+
+    function renderFileList(files) {
+      fileList.innerHTML = '';
+      
+      // Sort files alphabetically
+      files.sort();
+      
+      files.forEach(path => {
+        const li = document.createElement('li');
+        li.textContent = path.replace(/\.md$/, '');
+        li.dataset.path = path;
+        li.addEventListener('click', () => selectFile(path, li));
+        fileList.appendChild(li);
+      });
+    }
+
+    async function selectFile(path, element) {
+      // Update active state
+      document.querySelectorAll('#file-list li').forEach(li => li.classList.remove('active'));
+      element.classList.add('active');
+      
+      content.innerHTML = '<p class="loading">Loading...</p>';
+      
+      const response = await requestDocument(path);
+      
+      if (response.error) {
+        content.innerHTML = `<p style="color: red;">Error: ${response.error}</p>`;
+      } else {
+        renderMarkdown(response.content);
+      }
+    }
+
+    function renderMarkdown(markdown) {
+      content.innerHTML = marked.parse(markdown);
+    }
+
+    init();
+  </script>
+</body>
+</html>
