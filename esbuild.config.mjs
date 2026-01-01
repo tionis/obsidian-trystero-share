@@ -13,9 +13,9 @@ const buildOptions = {
 	platform: 'browser',
 	sourcemap: 'inline',
 	logLevel: 'info',
-	// Obsidian/Electron has __filename available, provide import.meta.url shim
+	// Provide import.meta.url shim that works on both desktop (Node.js) and mobile (no Node.js)
 	banner: {
-		js: `const __import_meta_url = require('url').pathToFileURL(__filename).href;`,
+		js: `var __import_meta_url = (typeof require !== 'undefined' && typeof __filename !== 'undefined') ? require('url').pathToFileURL(__filename).href : 'file:///plugin.js';`,
 	},
 	define: {
 		'import.meta.url': '__import_meta_url',
