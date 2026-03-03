@@ -2,6 +2,8 @@
 
 Trystero Share is an Obsidian plugin plus a small browser client for live, peer-to-peer sharing of Markdown notes over WebRTC.
 
+> This repository is a proof of concept (PoC) intended for experimentation and learning, not production deployment.
+
 The project has two runtime parts:
 
 - Obsidian plugin (`main.ts`): hosts your vault content and serves requests from connected peers.
@@ -81,6 +83,7 @@ For implementation details, compatibility notes, and testing workflows:
 
 ## Current Limits
 
+- This is a proof-of-concept implementation and is not hardened for production use.
 - Shares only Markdown files (`.md`).
 - Uses fixed room/app IDs in code (not configurable in UI yet).
 - Web client is a standalone static page without authentication.
